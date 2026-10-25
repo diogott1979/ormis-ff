@@ -322,4 +322,64 @@ function printStandaloneView(){
  } catch(error){notify('Não foi possível recuperar os dados para impressão: '+error.message,true);}
 }
 printStandaloneView();
+</script><script>
+/* ORMIS PDF autónomo: gera PDF vetorial no navegador, sem servidor ou CDN. */
+(function(){
+const pdfButton=document.getElementById('pdf');
+pdfButton.textContent='Gerar / Descarregar PDF';
+const note=document.getElementById('archive-notice');
+if(note)note.textContent='A ORMIS gera um PDF de duas páginas diretamente neste navegador. O mapa do PDF é um esquema georreferenciado vetorial (CMA, destino e linha direta), sem a imagem topográfica Esri. O ficheiro não é arquivado no servidor. Quando incorporada no Experience Builder, a transferência poderá depender das permissões do iframe.';
+function latin(s){return String(s??'').replace(/[\u2013\u2014]/g,'-').replace(/[\u2018\u2019]/g,"'").replace(/[\u201c\u201d]/g,'"').replace(/\u2022/g,'*').replace(/\u20ac/g,'EUR').replace(/[^\x20-\xFF]/g,'?');}
+function esc(s){return latin(s).replace(/[\\()]/g,c=>'\\'+c);}
+function wrap(s,max=87){let lines=[];for(let para of String(s??'').split(/\r?\n/)){let line='';for(let word of para.split(/\s+/)){if(!word)continue;if(word.length>max){if(line){lines.push(line);line=''}while(word.length>max){lines.push(word.slice(0,max));word=word.slice(max)}}if((line+' '+word).trim().length>max){if(line)lines.push(line);line=word;}else line=(line+' '+word).trim();}lines.push(line||' ');}return lines;}
+const W=595,H=842, left=36, right=559;
+function page(){let commands=[];return {commands,rect(x,y,w,h,fill){commands.push(`${fill} rg ${x.toFixed(2)} ${(H-y-h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`);},line(x1,y1,x2,y2,r=.75,g=.81,b=.88){commands.push(`${r} ${g} ${b} RG 0.6 w ${x1.toFixed(2)} ${(H-y1).toFixed(2)} m ${x2.toFixed(2)} ${(H-y2).toFixed(2)} l S`);},text(x,y,s,size=8,bold=false,color='0.12 0.22 0.35'){commands.push(`${color} rg BT /${bold?'F2':'F1'} ${size} Tf 1 0 0 1 ${x.toFixed(2)} ${(H-y).toFixed(2)} Tm (${esc(s)}) Tj ET`);}}}
+function header(p,type,n){p.rect(left,30,523,38,'0.075 0.2 0.34');p.text(45,54,n===1?`ORMIS ${type} - ORDEM / REGISTO DE MISSÃO`:'ORMIS - LOCALIZAÇÃO E MISSÃO',14,true,'1 1 1');p.text(left,83,`Serviço Regional de Proteção Civil  |  ORMIS ${type}  |  Página ${n} de 2`,8);p.line(left,89,right,89,.1,.25,.42);}
+function section(p,label,y){p.rect(left,y,523,17,'0.85 0.9 0.96');p.text(left+6,y+12,label,8.3,true);return y+21;}
+function cells(p,items,y,cols=2){let cw=523/cols;for(let i=0;i<items.length;i+=cols){let row=items.slice(i,i+cols);let lengths=row.map(([k,v])=>wrap(v,cols===2?51:28));let height=Math.max(28,...lengths.map(l=>Math.min(l.length,4)*9+15));for(let j=0;j<row.length;j++){let x=left+j*cw;p.text(x+4,y+9,row[j][0],7,true,'0.26 0.39 0.51');for(let k=0;k<Math.min(lengths[j].length,4);k++)p.text(x+4,y+19+k*9,lengths[j][k],7.5);p.line(x+3,y+height,x+cw-4,y+height);}y+=height+1;}return y;}
+function paragraph(p,value,y,maxLines=5){const lines=wrap(value||'Não indicado',110);p.rect(left,y,523,Math.min(maxLines,Math.max(2,lines.length))*9+10,'0.97 0.98 1');for(let i=0;i<Math.min(lines.length,maxLines);i++)p.text(left+6,y+12+i*9,lines[i],7.5);return y+Math.min(maxLines,Math.max(2,lines.length))*9+13;}
+function fromDOM(id){return [...document.querySelectorAll('#'+id+' .print-item')].map(el=>[el.querySelector('b')?.textContent||'',el.childNodes.length?([...el.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim()||'Não indicado'):'Não indicado']);}
+function createPdf(){
+const p1=page(),p2=page();header(p1,APP_TIPO,1);header(p2,APP_TIPO,2);
+let y=99;y=section(p1,'Identificação',y);y=cells(p1,fromDOM('r-ident'),y);
+y=section(p1,'Dados operacionais e comunicações',y);y=cells(p1,fromDOM('r-operacionais'),y);
+y=section(p1,'Descrição da ocorrência / situação',y);y=paragraph(p1,document.getElementById('r-descricao').textContent,y,3);
+y=section(p1,'Localização e navegação',y);y=cells(p1,fromDOM('r-nav'),y);
+y=section(p1,'Atividade aérea da missão',y);y=cells(p1,fromDOM('r-atividade'),y);
+y=section(p1,'Condições do local e meteorologia',y);y=cells(p1,fromDOM('r-condicoes'),y);
+y=section(p1,'Instruções e observações',y);y=paragraph(p1,document.getElementById('r-obs').textContent,y,3);
+p1.text(left,824,'Documento gerado localmente. Confirmar os dados antes do arquivo.   1 / 2',7,false,'0.4 0.45 0.52');
+let y2=99;y2=section(p2,'Pontos de referência',y2);y2=cells(p2,fromDOM('r-points'),y2);
+y2=section(p2,'Mapa de localização - representação vetorial',y2);
+let mx=left+3,my=y2+3,mw=517,mh=275;p2.rect(mx,my,mw,mh,'0.94 0.97 0.99');
+for(let i=1;i<8;i++){let x=mx+i*mw/8;p2.line(x,my,x,my+mh,.81,.86,.9)}for(let i=1;i<5;i++){let yy=my+i*mh/5;p2.line(mx,yy,mx+mw,yy,.81,.86,.9)}
+const alat=Number(get('cmaLat')),alon=Number(get('cmaLon')),blat=Number(get('lat')),blon=Number(get('lon'));
+const deg=(x)=>x*Math.PI/180;const merc=(lat)=>Math.log(Math.tan(Math.PI/4+deg(Math.max(-85,Math.min(85,lat)))/2));
+let lonMin=Math.min(alon,blon),lonMax=Math.max(alon,blon),latMin=Math.min(merc(alat),merc(blat)),latMax=Math.max(merc(alat),merc(blat));
+let dx=Math.max(.09,lonMax-lonMin)*1.7,dy=Math.max(.09,latMax-latMin)*1.7;let cx=(alon+blon)/2,cy=(merc(alat)+merc(blat))/2;let aspect=(mw-65)/(mh-60);if(dx/dy<aspect)dx=dy*aspect;else dy=dx/aspect;
+const X=lon=>mx+mw/2+(lon-cx)*(mw-65)/dx, Y=lat=>my+mh/2-(merc(lat)-cy)*(mh-60)/dy;
+let ax=X(alon),ay=Y(alat),bx=X(blon),by=Y(blat);
+p2.line(ax,ay,bx,by,.87,.42,.12);p2.rect(ax-4,ay-4,8,8,'0.06 0.42 0.67');p2.rect(bx-4,by-4,8,8,'0.8 0.22 0.18');
+p2.text(Math.min(ax+9,mx+mw-80),Math.max(12,ay-8),'CMA Cancela',9,true);p2.text(Math.min(bx+9,mx+mw-75),Math.max(12,by-8),'MISSÃO',9,true,'0.6 0.15 0.12');p2.text(mx+mw-35,my+16,'N ^',9,true);
+p2.text(mx+8,my+mh-10,'Esquema georreferenciado | linha direta, não é rota de voo',7);
+y2=my+mh+13;y2=section(p2,'Nota operacional',y2);y2=paragraph(p2,'A linha apresentada indica o rumo direto entre o CMA e o local da missão, não constituindo uma rota de voo validada. A imagem topográfica Esri não está incluída no PDF descarregado.',y2,4);
+y2=section(p2,'Responsáveis pela missão e emissão da ORMIS',y2);y2=cells(p2,fromDOM('r-responsaveis'),y2);
+p2.text(left,824,'Documento gerado localmente. Confirmar os dados antes do arquivo.   2 / 2',7,false,'0.4 0.45 0.52');
+let parts=['%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'],offsets=[0];let len=parts[0].length;
+function obj(id,content){offsets[id]=len;let s=`${id} 0 obj\n${content}\nendobj\n`;parts.push(s);len+=s.length;}
+function stream(content){return `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;}
+const c1=p1.commands.join('\n')+'\n',c2=p2.commands.join('\n')+'\n';
+obj(1,'<< /Type /Catalog /Pages 2 0 R >>');obj(2,'<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>');
+for(const [id,sid] of [[3,5],[4,6]])obj(id,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents ${sid} 0 R >>`);
+obj(5,stream(c1));obj(6,stream(c2));obj(7,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');obj(8,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+let start=len,xref='xref\n0 9\n0000000000 65535 f \n';for(let i=1;i<=8;i++)xref+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';let trailer=`trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n${start}\n%%EOF\n`;parts.push(xref,trailer);
+const bytes=new Uint8Array(parts.join('').split('').map(c=>c.charCodeAt(0)&255));return new Blob([bytes],{type:'application/pdf'});
+}
+pdfButton.onclick=()=>{
+ syncAirFromChecks();syncFlightHours();if(!validateMission())return;
+ const agora=new Date();set('dataEmissao',agora.toLocaleString('pt-PT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}));prep();
+ try {const pdf=createPdf();const u=URL.createObjectURL(pdf);const a=document.createElement('a');a.href=u;a.download=filename('.pdf');document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);notify('PDF gerado ('+Math.ceil(pdf.size/1024)+' KB). Verifique as Transferências do navegador. Se não surgir, o Experience Builder poderá estar a bloquear o download.');}
+ catch(e){notify('Não foi possível gerar o PDF: '+e.message,true);}
+};
+})();
 </script></body></html>
